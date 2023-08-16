@@ -12,7 +12,13 @@
 
 // Add below
 #if defined(ENABLE_TEXTTAIL_PARTICLE_EFFECT)
-	__UpdateParticleEffect(pTextTail);
+	if (pTextTail->bParticleEffect)
+		__UpdateParticleEffect(pTextTail);
+
+#if defined(ENABLE_TEXTTAIL_RANDOM_TITLE_COLOR)
+	if (pTextTail->bRandomTitleColor)
+		__UpdateRandomTitleColor(pTextTail);
+#endif
 #endif
 
 /// 2.
@@ -23,6 +29,9 @@ void CPythonTextTail::ArrangeTextTail()
 #if defined(ENABLE_TEXTTAIL_PARTICLE_EFFECT)
 void CPythonTextTail::__UpdateParticleEffect(TTextTail* pTextTail)
 {
+	if (pTextTail == nullptr)
+		return;
+
 	if (!pTextTail->QueueParticleFrames.empty())
 	{
 		const std::string& stFileName = pTextTail->QueueParticleFrames.front();
@@ -54,6 +63,67 @@ void CPythonTextTail::__UpdateParticleEffect(TTextTail* pTextTail)
 	if (pTextTail->bParticleFrame >= pTextTail->ParticleInstanceVector.size())
 		pTextTail->bParticleFrame = 0;
 }
+
+#if defined(ENABLE_TEXTTAIL_RANDOM_TITLE_COLOR)
+#include <random>
+#define rgb(r, g, b) D3DXCOLOR(r, g, b, 1.0f)
+
+void CPythonTextTail::__UpdateRandomTitleColor(TTextTail* pTextTail)
+{
+	if (pTextTail == nullptr)
+		return;
+
+	if (!pTextTail->pTitleTextInstance)
+		return;
+
+	++pTextTail->bRandomTitleColorDelay;
+	if (pTextTail->bRandomTitleColorDelay < TEXTTAIL_RANDOM_TITLE_COLOR_DELAY)
+		return;
+
+	pTextTail->bRandomTitleColorDelay = 0;
+
+	std::vector<D3DXCOLOR> vTitleColor
+	{
+		/* blue tones */ rgb(100, 149, 237), rgb(137, 207, 240), rgb(135, 206, 235), rgb(125, 249, 255), rgb(0, 255, 255)
+	};
+
+#if defined(TEXTTAIL_RANDOM_TITLE_COLOR_BY_ORDER)
+	const std::size_t nVecSize = vTitleColor.size() - 1;
+	if (pTextTail->bRandomTitleColorIndex >= nVecSize)
+		pTextTail->bRandomTitleColorIndex = 0;
+	pTextTail->bRandomTitleColorIndex += 1;
+
+	const D3DXCOLOR& kColor = vTitleColor[pTextTail->bRandomTitleColorIndex];
+#else
+	static std::random_device RandomDevice;
+	static std::mt19937 Generate(RandomDevice());
+	static std::uniform_real_distribution<> Distribute(0, vTitleColor.size() - 1);
+
+	const D3DXCOLOR& kColor = vTitleColor[Distribute(Generate)];
+#endif
+
+	if (pTextTail->bRandomTitleColorAlphaReverse)
+	{
+		if (pTextTail->fRandomTitleColorAlpha >= 1.0f)
+		{
+			pTextTail->fRandomTitleColorAlpha = 1.0f;
+			pTextTail->bRandomTitleColorAlphaReverse = false;
+		}
+		pTextTail->fRandomTitleColorAlpha += 0.1f;
+	}
+	else
+	{
+		if (pTextTail->fRandomTitleColorAlpha <= 0.3f)
+		{
+			pTextTail->fRandomTitleColorAlpha = 0.3f;
+			pTextTail->bRandomTitleColorAlphaReverse = true;
+		}
+		pTextTail->fRandomTitleColorAlpha -= 0.1f;
+	}
+
+	pTextTail->pTitleTextInstance->SetColor(kColor.r, kColor.g, kColor.b, pTextTail->fRandomTitleColorAlpha);
+}
+#endif
 #endif
 
 /// 3.
@@ -116,7 +186,7 @@ void CPythonTextTail::__UpdateParticleEffect(TTextTail* pTextTail)
 		if (pTextTail->pTitleTextInstance)
 		{
 #if defined(ENABLE_TEXTTAIL_PARTICLE_EFFECT)
-			if (pTextTail->bParticleFrame < pTextTail->ParticleInstanceVector.size())
+			if (pTextTail->bParticleEffect && pTextTail->bParticleFrame < pTextTail->ParticleInstanceVector.size())
 			{
 				CGraphicExpandedImageInstance* pImage = pTextTail->ParticleInstanceVector[pTextTail->bParticleFrame];
 				pImage->Render();
@@ -126,6 +196,35 @@ void CPythonTextTail::__UpdateParticleEffect(TTextTail* pTextTail)
 		}
 
 /// 5.
+// Search @ void CPythonTextTail::ShowCharacterTextTail
+	if (pInstance->CanPickInstance())
+		m_CharacterTextTailList.push_back(pTextTail);
+
+// Add below
+#if defined(ENABLE_TEXTTAIL_PARTICLE_EFFECT)
+	switch (pInstance->GetAlignmentGrade())
+	{
+		case 0:
+		{
+			pTextTail->bParticleEffect = true;
+#if defined(ENABLE_TEXTTAIL_RANDOM_TITLE_COLOR)
+			pTextTail->bRandomTitleColor = true;
+#endif
+		}
+		break;
+
+		default:
+		{
+			pTextTail->bParticleEffect = false;
+#if defined(ENABLE_TEXTTAIL_RANDOM_TITLE_COLOR)
+			pTextTail->bRandomTitleColor = false;
+#endif
+		}
+		break;
+	}
+#endif
+
+/// 6.
 // Search @ void CPythonTextTail::RegisterCharacterTextTail
 	CGraphicTextInstance* pTextInstance = pTextTail->pTextInstance;
 	pTextInstance->SetOutline(true);
@@ -133,10 +232,20 @@ void CPythonTextTail::__UpdateParticleEffect(TTextTail* pTextTail)
 
 // Add below
 #if defined(ENABLE_TEXTTAIL_PARTICLE_EFFECT)
+	pTextTail->bParticleEffect = false;
 	pTextTail->ParticleInstanceVector.clear();
 	pTextTail->QueueParticleFrames = {};
 	pTextTail->bParticleFrame = 0;
 	pTextTail->bParticleFrameDelay = 0;
+#if defined(ENABLE_TEXTTAIL_RANDOM_TITLE_COLOR)
+	pTextTail->bRandomTitleColor = false;
+#if defined(TEXTTAIL_RANDOM_TITLE_COLOR_BY_ORDER)
+	pTextTail->bRandomTitleColorIndex = 0;
+#endif
+	pTextTail->bRandomTitleColorDelay = 0;
+	pTextTail->fRandomTitleColorAlpha = 1.0f;
+	pTextTail->bRandomTitleColorAlphaReverse = false;
+#endif
 #endif
 
 /// 6.
@@ -145,7 +254,6 @@ void CPythonTextTail::__UpdateParticleEffect(TTextTail* pTextTail)
 
 // Add above
 #if defined(ENABLE_TEXTTAIL_PARTICLE_EFFECT)
-	pTextTail->QueueParticleFrames = {};
 	char szFrameFileName[256];
 	for (int i = 0; i < TEXTTAIL_PARTICLE_FRAMES - 1; ++i)
 	{
